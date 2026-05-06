@@ -1,0 +1,38 @@
+name: Deploy Notas
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'notas/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 910039462201.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Build and push image
+        run: |
+          docker build --platform linux/amd64 --provenance=false -t 744416-notas ./notas
+          docker tag 744416-notas:latest 910039462201.dkr.ecr.us-east-1.amazonaws.com/744416-notas:latest
+          docker push 910039462201.dkr.ecr.us-east-1.amazonaws.com/744416-notas:latest
+
+      - name: Deploy to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name 744416-notas \
+            --image-uri 910039462201.dkr.ecr.us-east-1.amazonaws.com/744416-notas:latest \
+            --region us-east-1
