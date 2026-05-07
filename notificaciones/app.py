@@ -16,10 +16,6 @@ sns = boto3.client('sns',        region_name=AWS_REGION)
 s3  = boto3.client('s3',         region_name=AWS_REGION)
 cw  = boto3.client('cloudwatch', region_name=AWS_REGION)
 
-# ─────────────────────────────────────────────
-# MÉTRICAS
-# ─────────────────────────────────────────────
-
 def put_metric(metric_name, value, unit="Count", dimensions=None):
     dims = (dimensions or []) + [{'Name': 'Environment', 'Value': ENVIRONMENT}]
     try:
@@ -62,10 +58,6 @@ def track_metrics(response):
     duration_ms = (time.time() - request._start_time) * 1000
     record_request(request.path, request.method, response.status_code, duration_ms)
     return response
-
-# ─────────────────────────────────────────────
-# RUTAS
-# ─────────────────────────────────────────────
 
 @app.route('/notificar', methods=['POST'])
 def notificar():
@@ -133,54 +125,58 @@ def health():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8082)
     
+import io
 from werkzeug.wrappers import Response
 
 def lambda_handler(event, context):
-    # Construir environ WSGI desde el evento HTTP API
+    body = event.get('body', '') or ''
+    if event.get('isBase64Encoded', False):
+        import base64
+        body = base64.b64decode(body)
+    else:
+        body = body.encode('utf-8')
+
     environ = {
         'REQUEST_METHOD': event['requestContext']['http']['method'],
         'SCRIPT_NAME': '',
         'PATH_INFO': event['rawPath'],
         'QUERY_STRING': event.get('rawQueryString', ''),
-        'CONTENT_TYPE': event['headers'].get('content-type', ''),
-        'CONTENT_LENGTH': event['headers'].get('content-length', '0'),
-        'SERVER_NAME': event['headers'].get('host', 'localhost'),
+        'CONTENT_TYPE': event.get('headers', {}).get('content-type', ''),
+        'CONTENT_LENGTH': str(len(body)),
+        'SERVER_NAME': event.get('headers', {}).get('host', 'localhost'),
         'SERVER_PORT': '443',
         'SERVER_PROTOCOL': 'HTTP/1.1',
         'wsgi.version': (1, 0),
         'wsgi.url_scheme': 'https',
-        'wsgi.input': None,
-        'wsgi.errors': None,
+        'wsgi.input': io.BytesIO(body),
+        'wsgi.errors': io.StringIO(),
         'wsgi.multithread': False,
         'wsgi.multiprocess': False,
         'wsgi.run_once': False,
     }
-    
-    # Agregar headers
+
     for header, value in event.get('headers', {}).items():
-        header_key = 'HTTP_' + header.upper().replace('-', '_')
-        environ[header_key] = value
-    
-    # Ejecutar app
+        key = 'HTTP_' + header.upper().replace('-', '_')
+        environ[key] = value
+
     response_data = []
     status = None
     response_headers = []
-    
+
     def start_response(status_str, headers, exc_info=None):
         nonlocal status, response_headers
         status = int(status_str.split()[0])
         response_headers = headers
         return lambda x: response_data.append(x)
-    
+
     app_iter = app(environ, start_response)
     for data in app_iter:
         response_data.append(data)
-    
-    body = b''.join(response_data).decode('utf-8')
-    
+
+    body_out = b''.join(response_data).decode('utf-8')
+
     return {
         'statusCode': status,
         'headers': dict(response_headers),
-        'body': body
+        'body': body_out
     }
-
