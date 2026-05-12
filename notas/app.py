@@ -118,7 +118,16 @@ def crear_nota():
     if not nota or not detalles:
         return jsonify({"error": "Se requieren 'nota' y 'contenido'"}), 400
 
+    campos = ['id', 'rfc', 'razon_social', 'total']
+    for campo in campos:
+        if campo not in nota or str(nota[campo]).strip() == '':
+            return jsonify({"error": f"El campo '{campo}' es requerido"}), 400
+
+    if len(str(nota['rfc'])) not in [12, 13]:
+        return jsonify({"error": "El RFC debe tener 12 o 13 caracteres"}), 400
+
     dynamodb.Table('NotasVenta').put_item(Item=nota)
+
     for item in detalles:
         dynamodb.Table('ContenidoNotas').put_item(Item=item)
 
